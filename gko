@@ -1,0 +1,15 @@
+#!/usr/bin/env php
+<?php
+/*
+ * (c) Leonardo Brugnara
+ *
+ * Full copyright and license information in LICENSE file.
+ */
+
+require __DIR__ . "/vendor/autoload.php";
+
+$app = new \Gekko\App\ConsoleApplication($argc, $argv, realpath(__DIR__));
+
+$status = $app->run();
+
+exit($status);
