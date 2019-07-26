@@ -35,26 +35,38 @@ To install the framework using Composer and jump into the project's directory ru
 composer create-project gekko/skel --repository="{ \"type\": \"vcs\", \"url\": \"https://github.com/gekko-framework/skel\" }" web-app 0.1.* && cd web-app
 ```
 
-### Preparing the **dev**
+### Preparing the **.dev**
 
-The **dev** folder will contain all the necessary files to build the foundation of our application:
+The **.dev** folder will contain all the necessary files to build the foundation of our application:
 
 ```bash
-mkdir dev
+mkdir .dev && cd .dev
+```
+
+Now let's create subfolders for different resources:
+
+```bash
+mkdir model        # Here we will put our model's resources
+mkdir migrations   # All the db migration stuff will be placed here
+mkdir bin          # Gekko uses console commands for different tasks, we will put here our custom commands
 ```
 
 ### Creating the model
 
 The following snippet defines a `PackageDescriptor` that contains all the information about the database, the tables, and their columns. With the same `PackageDescriptor` **Gekko** will be able to generate the PHP classes for this package.
 
-Create a new file called `package.php` within the `dev` folder with the snippet's content:
+Create a new file called `package.php` within the `.dev/model` folder with the snippet's content:
 
 ```php
-<?php // file: dev/package.php
+<?php // file: .dev/model/package.php
 use \Gekko\Model\PackageDescriptor;
 
 // Create a package (namespace)
 $package = new PackageDescriptor("WebApp");
+
+// This means the "WebApp" is a namespace, but won't
+// create a folder
+$package->virtual();
 
 // Define the schema for the DB
 $package->schema("web_app");
@@ -62,8 +74,8 @@ $package->schema("web_app");
 // Create a User model
 $user = $package->model("User");
 
-// Set the namespace
-$user->namespace("App\Data\\{$package->name}\Model");
+// Set the nested namespace name within the "WebApp" root namespace
+$user->namespace("Domain\\{$package->name}\Model");
 
 // Set the table name for this model
 $user->tableName("users");
@@ -89,22 +101,23 @@ return $package;
 
 ### Creating a console application to generate all the scaffolding
 
-Now that we have our `PackageDescriptor`, we need to generate the different sources to build our application stack. In order to do that, we will create a `Command`
+Now that we have our `PackageDescriptor`, we need to generate the different sources to build our application stack. In order to do that, we will create a custom `Command`. Create a file named `GenerateDomainCommand.php` within the `.dev/bin` folder and paste the following code in that file:
 
 ```php
-<?php // file: dev/WebAppGenerator.php
-namespace Dev;
+<?php // file: .dev/bin/GenerateDomainCommand.php
+namespace Dev\Bin;
 
 use \Gekko\Env;
+use \Gekko\Console\{ ConsoleContext, Command};
 use \Gekko\Model\Generators\Runner;
-use \Gekko\Console\Command;
 use \Gekko\Model\Generators\Domain\DomainGenerator;
 use \Gekko\Model\Generators\MySQL\Schema\MySQLSchemaGenerator;
 use \Gekko\Model\Generators\MySQL\Mappers\MySQLDataMapperGenerator;
+use \Gekko\Model\Generators\MySQL\Repositories\MySQLRepositoryGenerator;
 
-class WebAppGenerator extends Command
+class GenerateDomainCommand extends Command
 {
-    public function run() : int
+    public function run(ConsoleContext $ctx) : int
     {
         // A Runner is simply that, a class that register different generators and run them in the order they were registered
         $runner = new Runner();
@@ -112,18 +125,19 @@ class WebAppGenerator extends Command
         // The first thing we need, is the database schema. For this example we will use MySQL.
         // The output of the generator will be placed within the migrations folder that will be created
         // in the project's root
-        $runner->register(new MySQLSchemaGenerator(Env::rootDir() . DIRECTORY_SEPARATOR . "migrations"));
+        $runner->register(new MySQLSchemaGenerator(Env::rootDir() . "/.dev/migrations"));
 
-        // Next generator is the one that will create all the PHP Classes. 
-        // (The output will be placed in the project's root folder making honor of the namespace)
-        $runner->register(new DomainGenerator(Env::rootDir(), DomainGenerator::GEN_CLASS));
+        // Next generator is the one that will create all the PHP Classes.
+        $runner->register(new DomainGenerator(DomainGenerator::GEN_CLASS, Env::rootDir(). "/App"));
 
-        // Finally we need to generate the mappers that glue our schema with our classes.
-        // (The output will be placed in the project's root folder making honor of the namespace)
-        $runner->register(new MySQLDataMapperGenerator(Env::rootDir(), MySQLDataMapperGenerator::GEN_CLASS));
+        // We need to generate the mappers that glue our schema with our classes.
+        $runner->register(new MySQLDataMapperGenerator(MySQLDataMapperGenerator::GEN_CLASS, Env::rootDir() . "/App" ));
+
+        // Generate the repositories
+        $runner->register(new MySQLRepositoryGenerator(MySQLRepositoryGenerator::GEN_CLASS, Env::rootDir() . "/App"));
 
         // Now we need to get the reference to our `PackageDescriptor`
-        $package = require "package.php";
+        $package = require Env::rootDir() . "/.dev/model/package.php";
 
         // We run the generators, and all the sources should be placed in the `output` directory
         $runner->run($package);
@@ -133,11 +147,11 @@ class WebAppGenerator extends Command
 }
 ```
 
-Our `WebAppGenerator` is ready to be used, we just need to do one more thing, we need to register this console application, and to fully accomplish that we need to configure our application.
+Our `GenerateDomainCommand` is ready to be used, we just need to do one more thing, we need to register this console application, and to fully accomplish that we need to configure our application.
 
 ### Preparing the configuration
 
-Our project contains a `.env.example` file, what we need to do is to create a copy of that file and rename it to `.env`: 
+Our project contains a `.env.example` file in the root, what we need to do is to create a copy of that file and rename it to `.env`: 
 
 ```bash
 cp .env.example .env
@@ -145,20 +159,44 @@ cp .env.example .env
 
 You can check the content of that file, but for the purpose of this example we will use the default values that configure where the config files should be placed, and what driver will Gekko use to load the configuration.
 
-Now that we have our *configuration's configuration* in place, we need to create 1 files inside the `config` folder:
+Now that we have our *configuration's configuration* in place, we need to modify 1 files inside the `config` folder:
 
-- `console.php`: We need to associate our `WebAppGenerator` application to an *application name*
+- `console.php`: We need to associate our `GenerateDomainCommand` application to an *application name*
+
+It should look like this:
+
+```php
+<?php
+return [
+    "bin" => [
+        // Gekko's built-in commands
+        "php-server"    => Gekko\Console\PHP\ServerCommand::class,
+        "php-cgi"       => Gekko\Console\PHP\FastCGICommand::class,
+        "nginx"         => Gekko\Console\Nginx\ServerCommand::class,
+
+        // Put your custom commands here
+        // ...
+    ]
+];
+```
+To register our `GenerateDomainCommand`, we need to associate it to a command name, we will use the `generate` command name for it:
 
 ```php
 <?php // file: config/console.php
 return [
     "bin" => [
-        "generate" => \Dev\WebAppGenerator::class,
+        // Gekko's built-in commands
+        "php-server"    => Gekko\Console\PHP\ServerCommand::class,
+        "php-cgi"       => Gekko\Console\PHP\FastCGICommand::class,
+        "nginx"         => Gekko\Console\Nginx\ServerCommand::class,
+
+        // Put your custom commands here
+        "generate" => \Dev\Bin\GenerateDomainCommand::class
     ]
 ];
 ```
 
-We registered our new command, but there is something missing: we also need to register our `Dev` namespace with the folder `dev` in order to resolve the classes that belong to that namespace.
+We registered our new command, but there is something missing: we also need to register our `Dev` namespace with the folder `.dev` in order to resolve the classes that belong to that namespace.
 
 To accomplish that, we will update the `composer.json` file adding the `autoload-dev` object with our mapping. It should look like this:
 
@@ -168,7 +206,7 @@ To accomplish that, we will update the `composer.json` file adding the `autoload
     // ...
     "autoload-dev": {
         "psr-4": {
-            "Dev\\": "dev/"
+            "Dev\\": ".dev/"
         }
     }
     // ...
@@ -188,7 +226,7 @@ If everything is in place, we should be able to run the `gko generate` command t
 echo $? # we expect to get 0 here
 ```
 
-Now if you look into the project's root folder, you will see the new `migrations` folder. Also you should see that under the `App` folder you should find the `Data` folder that contains our model.
+Now if you look into the `.dev/migrations` folder you should see 2 files: `v1.json` and `.versions`. Also you should see that under the `App` folder you should find the `Domain` folder that contains our model.
 
 ### Understanding the generated output
 
@@ -196,39 +234,41 @@ Our console application has generated a lot of stuff, what should we do now with
 
 #### Model
 
-If you navigate through the `App/Data` folder you will see something similar in the structure with something we did before: The hierarchy resembles the namespace we registered in the `PackageDescriptor`. If you navigate to the `Model` folder, you will see 3 `php` files:
+If you navigate through the `App/Domain` folder you will see something similar in the structure with something we did before: The hierarchy resembles the namespace we registered in the `PackageDescriptor`. If you navigate to the `Model` folder, you will see 3 `php` files:
 
 - `User.php`: This is the class that represents our `User` model
 - `Descriptors/UserDescriptor.php`: This class contains `metadata` about our model, it is useful for other classes.
 - `DataMappers/UserDataMapper.php`: This is the class that knows how to retrieve a `User` object from the database, and also knows how to store a `User` in the DB. To achieve that, the mapper uses the `UserDescriptor` class.
 
-**NOTE**: By default, Gekko associates the `App\\` namespace with the `App/` folder, therefore as long as you use a namespace that resembles the *default* structure suggested in this tutorial, it shouldn't be necessary to update Composer's autload, but if you want to use a different structure you will need to update it.
+**NOTE**: By default, Gekko associates the `App\\` namespace with the `App/` folder, therefore as long as you use a namespace that resembles the *default* structure suggested in this tutorial, it shouldn't be necessary to update Composer's autoload, but if you want to use a different structure you will need to update it.
 
 #### Migrations
 
-Our `MySQLSchemaGenerator` has generated a folder named `migrations` that contains a `json` file with a suggestive name: `v1.json`. This `json` file is nothing more and nothing less than the *database descriptor*, this is, our `PackageDescriptor` serialized to a `json` file containing just the information the migration process needs in order to work properly.
+As mentioned before, our `MySQLSchemaGenerator` has generated a `json` file with a suggestive name: `v1.json`. This `json` file is nothing more and nothing less than the *database descriptor*, this is, our `PackageDescriptor` serialized to a `json` file containing just the information the migration process needs in order to work properly.
 
-Similar to what we did when we created the `WebAppGenerator` we now need to create a `WebAppMigration` console application. This application will allow us to get full control of the migration process:
+Similar to what we did when we created the `GenerateDomainCommand` we now need to create a `MigrationCommand` console application. This application will allow us to get full control of the migration process:
 
 ```php
-<?php // file: dev/WebAppMigration.php
+<?php // file: .dev/bin/MigrationCommand.php
 
-namespace Dev;
+namespace Dev\Bin;
 
-use \Gekko\Env;
-use \Gekko\Console\Command;
-use \Gekko\Database\MySQL\Migrations\MySQLMigration;
+use Gekko\Env;
+use Gekko\Database\MySQL\MySQLConnection;
+use \Gekko\Console\{ ConsoleContext, Command};
+use Gekko\Database\MySQL\Migrations\MySQLMigration;
 
-class WebAppMigration extends Command
+class MigrationCommand extends Command
 {
-    public function run() : int
+    public function run(ConsoleContext $ctx) : int
     {
-        // Instantiate the MySQLMigration object with the path where the migrations reside
-        $migrationsPath = Env::rootDir() . DIRECTORY_SEPARATOR . "migrations";
-        $migration = new MySQLMigration($migrationsPath);
+        $dbconfig = $ctx->getConfigProvider()->getConfig("database");
+        $connection = new MySQLConnection($dbconfig->get("mysql.connection.host"), null, $dbconfig->get("mysql.connection.user"), $dbconfig->get("mysql.connection.pass"));
 
-        // Run all the migrations until reach the last available version
-        $migration->upgradeTo($migration->getLastVersion());
+        $migrationManager = new MySQLMigration($connection, Env::rootDir() . "/.dev/migrations");
+               
+        $lastVersion = $migrationManager->getLastVersion();
+        $migrationManager->upgradeTo($lastVersion);
 
         return 0;
     }
@@ -241,8 +281,14 @@ As we did with our previous `Command`, we need to register it in the `console.ph
 <?php // file: config/console.php
 return [
     "bin" => [
-        "generate" => \Dev\WebAppGenerator::class,
-        "migrate" => \Dev\WebAppMigration::class
+        // Gekko's built-in commands
+        "php-server"    => Gekko\Console\PHP\ServerCommand::class,
+        "php-cgi"       => Gekko\Console\PHP\FastCGICommand::class,
+        "nginx"         => Gekko\Console\Nginx\ServerCommand::class,
+
+        // Put your custom commands here
+        "generate" => \Dev\Bin\GenerateDomainCommand::class,
+        "migrate" => \Dev\Bin\MigrationCommand::class
     ]
 ];
 ```
@@ -274,20 +320,20 @@ If we are seeing a `0`, it means the migration run successfully, and we should h
 
 #### Seeding our database
 
-We will create a new `Command` to insert records in our database. Let's create a file named `WebAppSeeder` inside our `dev` folder, and make it looks like this:
+We will create a new `Command` to insert records in our database. Let's create a file named `DbSeedCommand` inside our `.dev/bin` folder, and make it looks like this:
 
 ```php
-<?php // file: dev/WebAppSeeder.php
+<?php // file: .dev/bin/DbSeedCommand.php
 
 namespace Dev;
 
-use \Gekko\Console\Command;
-use \App\Data\WebApp\Model\DataMappers\UserDataMapper;
 use \App\Data\WebApp\Model\User;
+use \Gekko\Console\{ ConsoleContext, Command};
+use \App\Data\WebApp\Model\DataMappers\UserDataMapper;
 
-class WebAppSeeder extends Command
+class DbSeedCommand extends Command
 {
-    public function run() : int
+    public function run(ConsoleContext $ctx) : int
     {
         // Instantiate the UserDataMapper
         $userMapper = new UserDataMapper();
@@ -314,9 +360,15 @@ What's next? Registering our application in the `console.php` file:
 <?php // file: config/console.php
 return [
     "bin" => [
-        "generate" => \Dev\WebAppGenerator::class,
-        "migrate" => \Dev\WebAppMigration::class,
-        "seed" => \Dev\WebAppSeeder::class
+        // Gekko's built-in commands
+        "php-server"    => Gekko\Console\PHP\ServerCommand::class,
+        "php-cgi"       => Gekko\Console\PHP\FastCGICommand::class,
+        "nginx"         => Gekko\Console\Nginx\ServerCommand::class,
+
+        // Put your custom commands here
+        "generate" => \Dev\Bin\GenerateDomainCommand::class,
+        "migrate" => \Dev\Bin\MigrationCommand::class,
+        "seed" => \Dev\Bin\DbSeedCommand::class
     ]
 ];
 ```

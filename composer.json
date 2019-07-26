@@ -57,10 +57,20 @@
         {
             "type": "vcs",
             "url": "https://github.com/gekko-framework/types"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/gekko-framework/php-console"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/gekko-framework/nginx-console"
         }
     ],
     "require": {
-        "gekko/framework": "0.1.0"
+        "gekko/framework": "0.1.0",
+        "gekko/php-console": "^0.1.0",
+        "gekko/nginx-console": "^0.1.0"
     },
     "autoload": {
         "psr-4": {
