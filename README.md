@@ -20,7 +20,7 @@ In the following example you will be learning how to create a new project and ma
 
 Gekko's requisites are
 
-- PHP: Version 7.2+
+- PHP: Version 7.3+
 - [Composer](https://getcomposer.org/) (If you don't have it installed already, start by [installing it](https://getcomposer.org/doc/00-intro.md))
 
 For this particular tutorial you will need:
@@ -35,20 +35,20 @@ To install the framework using Composer and jump into the project's directory ru
 composer create-project gekko/skel --repository="{ \"type\": \"vcs\", \"url\": \"https://github.com/gekko-framework/skel\" }" web-app 0.1.* && cd web-app
 ```
 
-### Preparing the **.dev**
+### Preparing the **.dev** directory
 
-The **.dev** folder will contain all the necessary files to build the foundation of our application:
+The **.dev** directory will contain all the necessary files to build the foundation of our application:
 
 ```bash
 mkdir .dev && cd .dev
 ```
 
-Now let's create subfolders for different resources:
+Now let's create subfolders for the different resources we will need:
 
 ```bash
 mkdir model        # Here we will put our model's resources
 mkdir migrations   # All the db migration stuff will be placed here
-mkdir bin          # Gekko uses console commands for different tasks, we will put here our custom commands
+mkdir bin          # Gekko uses console commands for different tasks, we will put our custom commands here
 ```
 
 ### Creating the model
@@ -64,10 +64,6 @@ use \Gekko\Model\PackageDescriptor;
 // Create a package (namespace)
 $package = new PackageDescriptor("WebApp");
 
-// This means the "WebApp" is a namespace, but won't
-// create a folder
-$package->virtual();
-
 // Define the schema for the DB
 $package->schema("web_app");
 
@@ -75,7 +71,7 @@ $package->schema("web_app");
 $user = $package->model("User");
 
 // Set the nested namespace name within the "WebApp" root namespace
-$user->namespace("Domain\\{$package->name}\Model");
+$user->namespace("Domain\\Model");
 
 // Set the table name for this model
 $user->tableName("users");
@@ -101,7 +97,7 @@ return $package;
 
 ### Creating a console application to generate all the scaffolding
 
-Now that we have our `PackageDescriptor`, we need to generate the different sources to build our application stack. In order to do that, we will create a custom `Command`. Create a file named `GenerateDomainCommand.php` within the `.dev/bin` folder and paste the following code in that file:
+Now that we have our `PackageDescriptor`, we need to generate the different sources to build our application stack. In order to do that, we will create a custom `Command`. Create a file called `GenerateDomainCommand.php` within the `.dev/bin` folder and paste the following code in that file:
 
 ```php
 <?php // file: .dev/bin/GenerateDomainCommand.php
@@ -125,19 +121,19 @@ class GenerateDomainCommand extends Command
         // The first thing we need, is the database schema. For this example we will use MySQL.
         // The output of the generator will be placed within the migrations folder that will be created
         // in the project's root
-        $runner->register(new MySQLSchemaGenerator(Env::rootDir() . "/.dev/migrations"));
+        $runner->register(new MySQLSchemaGenerator(Env::getRootDirectory() . "/.dev/migrations"));
 
         // Next generator is the one that will create all the PHP Classes.
-        $runner->register(new DomainGenerator(DomainGenerator::GEN_CLASS, Env::rootDir(). "/App"));
+        $runner->register(new DomainGenerator(DomainGenerator::GEN_CLASS, Env::getRootDirectory()));
 
         // We need to generate the mappers that glue our schema with our classes.
-        $runner->register(new MySQLDataMapperGenerator(MySQLDataMapperGenerator::GEN_CLASS, Env::rootDir() . "/App" ));
+        $runner->register(new MySQLDataMapperGenerator(MySQLDataMapperGenerator::GEN_CLASS, Env::getRootDirectory()));
 
         // Generate the repositories
-        $runner->register(new MySQLRepositoryGenerator(MySQLRepositoryGenerator::GEN_CLASS, Env::rootDir() . "/App"));
+        $runner->register(new MySQLRepositoryGenerator(MySQLRepositoryGenerator::GEN_CLASS, Env::getRootDirectory()));
 
         // Now we need to get the reference to our `PackageDescriptor`
-        $package = require Env::rootDir() . "/.dev/model/package.php";
+        $package = require Env::getRootDirectory() . "/.dev/model/package.php";
 
         // We run the generators, and all the sources should be placed in the `output` directory
         $runner->run($package);
@@ -147,11 +143,13 @@ class GenerateDomainCommand extends Command
 }
 ```
 
-Our `GenerateDomainCommand` is ready to be used, we just need to do one more thing, we need to register this console application, and to fully accomplish that we need to configure our application.
+Our `GenerateDomainCommand` is almost ready to be used, we just need to do two more things: 
+- we need to register the console application to run it with the `gko` command
+- we need to update the `composer.json` file to map the `Dev` namespace to the `.dev` directory
 
 ### Preparing the configuration
 
-Our project contains a `.env.example` file in the root, what we need to do is to create a copy of that file and rename it to `.env`: 
+There is a file called `.env.example` in the root of the project, what we need to do is to create a copy of that file and rename it to `.env`: 
 
 ```bash
 cp .env.example .env
@@ -196,9 +194,7 @@ return [
 ];
 ```
 
-We registered our new command, but there is something missing: we also need to register our `Dev` namespace with the folder `.dev` in order to resolve the classes that belong to that namespace.
-
-To accomplish that, we will update the `composer.json` file adding the `autoload-dev` object with our mapping. It should look like this:
+We registered our new command, but we still need to map the `Dev` namespace with the `.dev` directory in order to resolve the classes that belong to that namespace. To do that, we will update the `composer.json` file adding the `autoload-dev` object with our mapping. It should look like this:
 
 ```php
 <?php // file: composer.json
@@ -234,11 +230,12 @@ Our console application has generated a lot of stuff, what should we do now with
 
 #### Model
 
-If you navigate through the `App/Domain` folder you will see something similar in the structure with something we did before: The hierarchy resembles the namespace we registered in the `PackageDescriptor`. If you navigate to the `Model` folder, you will see 3 `php` files:
+If you navigate through the `App/Domain` folder you will see something similar in the structure with something we did before: The hierarchy resembles the namespace we registered in the `PackageDescriptor`. If you navigate to the `Model` folder, you will see the following `php` files:
 
 - `User.php`: This is the class that represents our `User` model
 - `Descriptors/UserDescriptor.php`: This class contains `metadata` about our model, it is useful for other classes.
 - `DataMappers/UserDataMapper.php`: This is the class that knows how to retrieve a `User` object from the database, and also knows how to store a `User` in the DB. To achieve that, the mapper uses the `UserDescriptor` class.
+- `Repositories/UserRepository.php`: This class uses the `UserDataMapper` class to store, remove, and query `User` objects from the database.
 
 **NOTE**: By default, Gekko associates the `App\\` namespace with the `App/` folder, therefore as long as you use a namespace that resembles the *default* structure suggested in this tutorial, it shouldn't be necessary to update Composer's autoload, but if you want to use a different structure you will need to update it.
 
@@ -265,7 +262,7 @@ class MigrationCommand extends Command
         $dbconfig = $ctx->getConfigProvider()->getConfig("database");
         $connection = new MySQLConnection($dbconfig->get("mysql.connection.host"), null, $dbconfig->get("mysql.connection.user"), $dbconfig->get("mysql.connection.pass"));
 
-        $migrationManager = new MySQLMigration($connection, Env::rootDir() . "/.dev/migrations");
+        $migrationManager = new MySQLMigration($connection, Env::getRootDirectory() . "/.dev/migrations");
                
         $lastVersion = $migrationManager->getLastVersion();
         $migrationManager->upgradeTo($lastVersion);
@@ -316,7 +313,18 @@ Once we have all in place, we just need to run the following in the shell:
 echo $? # we expect to get 0 here
 ```
 
-If we are seeing a `0`, it means the migration run successfully, and we should have our database and table ready.
+If the `echo` outputs a `0`, it means the migration ran successfully, and we should have our database and table ready, but just to be sure you can check it with the following command:
+
+```bash
+mysql -u <db username> -p -e "SELECT TABLE_SCHEMA, TABLE_NAME FROM information_schema.tables WHERE table_schema = 'web_app' AND table_name = 'users' LIMIT 1;"
+Enter password: ************
+
++--------------+------------+
+| TABLE_SCHEMA | TABLE_NAME |
++--------------+------------+
+| web_app      | users      |
++--------------+------------+
+```
 
 #### Seeding our database
 
@@ -325,18 +333,27 @@ We will create a new `Command` to insert records in our database. Let's create a
 ```php
 <?php // file: .dev/bin/DbSeedCommand.php
 
-namespace Dev;
+namespace Dev\Bin;
 
-use \App\Data\WebApp\Model\User;
+use \WebApp\Domain\Model\User;
 use \Gekko\Console\{ ConsoleContext, Command};
-use \App\Data\WebApp\Model\DataMappers\UserDataMapper;
+use \Gekko\Database\MySQL\MySQLConnection;
+use \WebApp\Domain\Model\Repositories\UserRepository;
 
 class DbSeedCommand extends Command
 {
     public function run(ConsoleContext $ctx) : int
     {
         // Instantiate the UserDataMapper
-        $userMapper = new UserDataMapper();
+        $dbconfig = $ctx->getConfigProvider()->getConfig("database");
+
+        $connection = new MySQLConnection(
+                $dbconfig->get("mysql.connection.host"), 
+                $dbconfig->get("mysql.connection.name"), 
+                $dbconfig->get("mysql.connection.user"), 
+                $dbconfig->get("mysql.connection.pass"));
+
+        $userRepository = new UserRepository($connection);
 
         for ($i=0; $i < 3; $i++)
         {
@@ -346,7 +363,7 @@ class DbSeedCommand extends Command
             $user->setEmail("user.$i@mail.com");
 
             // Insert the newly created user
-            $userMapper->insert($user);
+            $userRepository->add($user);
         }
 
         return 0;
@@ -527,14 +544,25 @@ $routes->get(
     "/users", 
     function (
         \Gekko\Http\IHttpRequest $request, 
-        \Gekko\Http\IHttpResponse $response, 
-        \App\Data\WebApp\Model\DataMappers\UserDataMapper $userMapper
+        \Gekko\Http\IHttpResponse $response,
+        \Gekko\Config\IConfigProvider $configProvider
     ) {
         // We se the response's Content-Type
         $response->setHeader("Content-Type", "application/json");
 
-        // We retrieve all the users using the DataMapper
-        $users = $userMapper->selectAll();
+        // We create the MySQL connection and we create the user repository
+        $dbconfig = $configProvider->getConfig("database");
+
+        $connection = new \Gekko\Database\MySQL\MySQLConnection(
+            $dbconfig->get("mysql.connection.host"), 
+            $dbconfig->get("mysql.connection.name"), 
+            $dbconfig->get("mysql.connection.user"), 
+            $dbconfig->get("mysql.connection.pass"));
+
+        $userRepository = new \WebApp\Domain\Model\Repositories\UserRepository($connection);
+
+        // We retrieve the list of users
+        $users = $userRepository->getAll();
 
         // Process our users lit
         $output = [];
